@@ -21,6 +21,11 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("Socket disconnected ", socket.id);
+
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+    const active = io.sockets.adapter.rooms.get(roomId)?.size ?? 0;
+    io.to(roomId).emit("users:active", active);
   });
 
   socket.on("room:join", (roomId: unknown) => {
@@ -28,6 +33,9 @@ io.on("connection", (socket) => {
 
     socket.join(roomId);
     socket.data.roomId = roomId;
+
+    const active = io.sockets.adapter.rooms.get(roomId)?.size ?? 0;
+    io.to(roomId).emit("users:active", active);
 
     console.log(`${socket.id} joined in room ${roomId}`);
   });

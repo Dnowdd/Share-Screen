@@ -8,6 +8,7 @@ import {
   Paperclip,
   Send,
   SquareArrowOutUpRight,
+  User,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -27,6 +28,8 @@ const Room = () => {
   const [isChatVisible, setIsChatVisible] = useState<boolean>(true);
   const [isConnected, setIsConnected] = useState<boolean>(false);
 
+  const [usersActive, setUsersActive] = useState<number>(0);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
 
@@ -36,13 +39,14 @@ const Room = () => {
       socket.emit("room:join", id);
     };
     const onDisconnect = () => setIsConnected(false);
-    const onMessage = (message: Message) => {
+    const onMessage = (message: Message) =>
       setMessages((prev) => [...prev, message]);
-    };
+    const onUsersActive = (usersActive: number) => setUsersActive(usersActive);
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("chat:message", onMessage);
+    socket.on("users:active", onUsersActive);
 
     socket.connect();
 
@@ -50,6 +54,7 @@ const Room = () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off("chat:message", onMessage);
+      socket.off("users:active", onUsersActive);
       socket.disconnect();
     };
   }, [id]);
@@ -99,18 +104,26 @@ const Room = () => {
               {isConnected && (
                 <div className="flex gap-2 items-center py-2 px-2.5 rounded-xl bg-neutral-900/50">
                   <div className="relative">
-                    <div className="h-6 w-10"></div>
-                    <div className="size-6 bg-blue-500 rounded-full flex justify-center items-center text-xs absolute z-[3] top-0">
-                      DQ
-                    </div>
-                    <div className="size-6 bg-red-500 rounded-full flex justify-center items-center text-xs absolute left-2 z-[2] top-0">
-                      DQ
-                    </div>
-                    <div className="size-6 bg-purple-500 rounded-full flex justify-center items-center text-xs absolute left-4 z-[1] top-0">
-                      DQ
-                    </div>
+                    <div
+                      className={`h-6 ${usersActive === 1 ? "w-6" : usersActive === 2 ? "w-8" : usersActive >= 3 ? "w-10" : "w-0"}`}
+                    ></div>
+                    {usersActive >= 1 && (
+                      <div className="size-6 bg-blue-500 rounded-full flex justify-center items-center text-xs absolute z-[3] top-0">
+                        <User className="size-4" />
+                      </div>
+                    )}
+                    {usersActive >= 2 && (
+                      <div className="size-6 bg-red-500 rounded-full flex justify-center items-center text-xs absolute left-2 z-[2] top-0">
+                        <User className="size-4" />
+                      </div>
+                    )}
+                    {usersActive >= 3 && (
+                      <div className="size-6 bg-purple-500 rounded-full flex justify-center items-center text-xs absolute left-4 z-[1] top-0">
+                        <User className="size-4" />
+                      </div>
+                    )}
                   </div>
-                  <div>5 users</div>
+                  {usersActive > 3 && <div>{usersActive} users</div>}
                 </div>
               )}
             </div>
