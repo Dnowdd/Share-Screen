@@ -25,7 +25,7 @@ const Room = () => {
             href="/"
             className="font-light flex gap-2 items-center transition border-b border-transparent hover:border-neutral-600"
           >
-            <CornerDownLeft className="size-4" /> sair
+            <CornerDownLeft className="size-4" /> exit
           </Link>
 
           <p className="font-bold text-4xl flex items-center gap-2">
