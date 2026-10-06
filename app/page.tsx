@@ -85,9 +85,15 @@ export default function Home() {
           ref={inputRef}
           type="text"
           id="code"
-          maxLength={6}
           value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          onChange={(e) =>
+            setCode(
+              e.target.value
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, "")
+                .slice(0, 6),
+            )
+          }
           onKeyDown={(e) => {
             if (e.key === "Enter" && code.length === 6) enterRoom(code);
           }}
