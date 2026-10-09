@@ -2,6 +2,7 @@
 
 import {
   CornerDownLeft,
+  Eye,
   Loader,
   Maximize,
   MessagesCircle,
@@ -24,6 +25,23 @@ type Message = {
   sentAt: number;
 };
 
+type Signal =
+  | { type: "watch" }
+  | { type: "offer"; sdp: RTCSessionDescriptionInit }
+  | { type: "answer"; sdp: RTCSessionDescriptionInit }
+  | { type: "ice"; candidate: RTCIceCandidateInit };
+
+type SignalMessage = { from: string; data: Signal };
+
+const rtcConfig: RTCConfiguration = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+};
+
+function closePeers(peers: Map<string, RTCPeerConnection>) {
+  peers.forEach((peer) => peer.close());
+  peers.clear();
+}
+
 const Room = () => {
   const { id } = useParams<{ id: string }>();
 
@@ -37,6 +55,19 @@ const Room = () => {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const peersRef = useRef(new Map<string, RTCPeerConnection>());
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+
+  const [whoIsSharing, setWhoIsSharing] = useState<string | null>(null);
+
+  const watchScreen = async () => {
+    if (!whoIsSharing) return;
+    socket.emit("rtc:signal", {
+      to: whoIsSharing,
+      data: { type: "watch" },
+    });
+  };
 
   const startSharing = async () => {
     try {
@@ -47,9 +78,12 @@ const Room = () => {
 
       stream.getVideoTracks()[0].addEventListener("ended", () => {
         setLocalStream(null);
+        socket.emit("screen:stop");
+        closePeers(peersRef.current);
       });
 
       setLocalStream(stream);
+      socket.emit("screen:start");
     } catch {
       return;
     }
@@ -58,13 +92,19 @@ const Room = () => {
   const stopSharing = () => {
     localStream?.getTracks().forEach((track) => track.stop());
     setLocalStream(null);
+    socket.emit("screen:stop");
+    closePeers(peersRef.current);
   };
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = localStream;
-  }, [localStream]);
+    localStreamRef.current = localStream;
+    if (videoRef.current)
+      videoRef.current.srcObject = localStream ?? remoteStream;
+  }, [localStream, remoteStream]);
 
   useEffect(() => {
+    const peers = peersRef.current;
+
     const onConnect = () => {
       setIsConnected(true);
       socket.emit("room:join", id);
@@ -73,11 +113,82 @@ const Room = () => {
     const onMessage = (message: Message) =>
       setMessages((prev) => [...prev, message]);
     const onUsersActive = (usersActive: number) => setUsersActive(usersActive);
+    const onScreenStarted = (userId: string) => setWhoIsSharing(userId);
+
+    const onScreenStopped = () => {
+      setWhoIsSharing(null);
+      setRemoteStream(null);
+      closePeers(peers);
+    };
+    const createPeer = (remoteId: string) => {
+      const peer = new RTCPeerConnection(rtcConfig);
+
+      peer.onicecandidate = (event) => {
+        if (!event.candidate) return;
+        socket.emit("rtc:signal", {
+          to: remoteId,
+          data: { type: "ice", candidate: event.candidate.toJSON() },
+        });
+      };
+
+      peer.ontrack = (event) => setRemoteStream(event.streams[0]);
+
+      peers.set(remoteId, peer);
+      return peer;
+    };
+    const handleSignal = async ({ from, data }: SignalMessage) => {
+      switch (data.type) {
+        case "watch": {
+          const stream = localStreamRef.current;
+          if (!stream) return;
+
+          const peer = createPeer(from);
+          stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+
+          const offer = await peer.createOffer();
+          await peer.setLocalDescription(offer);
+          socket.emit("rtc:signal", {
+            to: from,
+            data: { type: "offer", sdp: offer },
+          });
+          break;
+        }
+        case "offer": {
+          const peer = createPeer(from);
+          await peer.setRemoteDescription(data.sdp);
+
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+          socket.emit("rtc:signal", {
+            to: from,
+            data: { type: "answer", sdp: answer },
+          });
+          break;
+        }
+        case "answer": {
+          await peers.get(from)?.setRemoteDescription(data.sdp);
+          break;
+        }
+        case "ice": {
+          await peers.get(from)?.addIceCandidate(data.candidate);
+          break;
+        }
+      }
+    };
+    let signalQueue = Promise.resolve();
+    const onSignal = (message: SignalMessage) => {
+      signalQueue = signalQueue
+        .then(() => handleSignal(message))
+        .catch((error) => console.error("rtc:signal", error));
+    };
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("chat:message", onMessage);
     socket.on("users:active", onUsersActive);
+    socket.on("screen:started", onScreenStarted);
+    socket.on("screen:stopped", onScreenStopped);
+    socket.on("rtc:signal", onSignal);
 
     socket.connect();
 
@@ -86,6 +197,10 @@ const Room = () => {
       socket.off("disconnect", onDisconnect);
       socket.off("chat:message", onMessage);
       socket.off("users:active", onUsersActive);
+      socket.off("screen:started", onScreenStarted);
+      socket.off("screen:stopped", onScreenStopped);
+      socket.off("rtc:signal", onSignal);
+      closePeers(peers);
       socket.disconnect();
     };
   }, [id]);
@@ -115,13 +230,24 @@ const Room = () => {
         </div>
 
         <div className="bg-neutral-800 aspect-video w-full rounded-xl relative">
-          {!localStream && (
+          {!localStream && !whoIsSharing && (
             <div className="flex justify-center items-center gap-6 absolute top-1/2 left-1/2 -translate-y-1/2 -translate-x-1/2">
               <button
                 className="transition cursor-pointer rounded-full px-4 py-2 bg-blue-500 hover:bg-blue-600 flex items-center justify-center gap-4"
                 onClick={startSharing}
               >
                 <ScreenShare className="size-4" /> Share screen
+              </button>
+            </div>
+          )}
+
+          {!localStream && whoIsSharing && !remoteStream && (
+            <div className="flex justify-center items-center gap-6 absolute top-1/2 left-1/2 -translate-y-1/2 -translate-x-1/2">
+              <button
+                className="transition cursor-pointer rounded-full px-4 py-2 bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center gap-4"
+                onClick={watchScreen}
+              >
+                <Eye className="size-4" /> Watch screen
               </button>
             </div>
           )}
