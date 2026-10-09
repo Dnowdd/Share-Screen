@@ -6,13 +6,15 @@ import {
   Maximize,
   MessagesCircle,
   Paperclip,
+  ScreenShare,
+  ScreenShareOff,
   Send,
   SquareArrowOutUpRight,
   User,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState, useEffect, type SubmitEvent } from "react";
+import { useState, useEffect, type SubmitEvent, useRef } from "react";
 import { socket } from "@/lib/socket";
 
 type Message = {
@@ -32,6 +34,35 @@ const Room = () => {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+
+  const startSharing = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+      });
+
+      stream.getVideoTracks()[0].addEventListener("ended", () => {
+        setLocalStream(null);
+      });
+
+      setLocalStream(stream);
+    } catch {
+      return;
+    }
+  };
+
+  const stopSharing = () => {
+    localStream?.getTracks().forEach((track) => track.stop());
+    setLocalStream(null);
+  };
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.srcObject = localStream;
+  }, [localStream]);
 
   useEffect(() => {
     const onConnect = () => {
@@ -83,9 +114,36 @@ const Room = () => {
           </p>
         </div>
 
-        <div className="bg-neutral-800 aspect-video w-full rounded-xl"></div>
+        <div className="bg-neutral-800 aspect-video w-full rounded-xl relative">
+          {!localStream && (
+            <div className="flex justify-center items-center gap-6 absolute top-1/2 left-1/2 -translate-y-1/2 -translate-x-1/2">
+              <button
+                className="transition cursor-pointer rounded-full px-4 py-2 bg-blue-500 hover:bg-blue-600 flex items-center justify-center gap-4"
+                onClick={startSharing}
+              >
+                <ScreenShare className="size-4" /> Share screen
+              </button>
+            </div>
+          )}
+
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full h-full object-contain"
+          />
+        </div>
 
         <div className="flex justify-end gap-2">
+          {localStream && (
+            <button
+              className="transition cursor-pointer rounded-full px-4 py-2 bg-red-500 hover:bg-red-600 flex items-center justify-center gap-4"
+              onClick={stopSharing}
+            >
+              <ScreenShareOff className="size-4" /> Stop sharing
+            </button>
+          )}
           <div className="size-12 rounded-full bg-neutral-800 shadow flex items-center justify-center">
             <Maximize className="size-5" />
           </div>
