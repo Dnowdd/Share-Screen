@@ -14,6 +14,8 @@ const httpServer = createServer((req, res) => {
   handle(req, res);
 });
 
+const sharers = new Map();
+
 const io = new Server(httpServer);
 
 io.on("connection", (socket) => {
@@ -24,6 +26,12 @@ io.on("connection", (socket) => {
 
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
+    if (sharers.get(roomId) === socket.id) {
+      sharers.delete(roomId);
+      io.to(roomId).emit("screen:stopped");
+    }
+
     const active = io.sockets.adapter.rooms.get(roomId)?.size ?? 0;
     io.to(roomId).emit("users:active", active);
   });
@@ -36,6 +44,10 @@ io.on("connection", (socket) => {
 
     const active = io.sockets.adapter.rooms.get(roomId)?.size ?? 0;
     io.to(roomId).emit("users:active", active);
+
+    if (sharers.get(roomId)) {
+      socket.emit("screen:started", sharers.get(roomId));
+    }
 
     console.log(`${socket.id} joined in room ${roomId}`);
   });
@@ -54,6 +66,35 @@ io.on("connection", (socket) => {
       authorId: socket.id,
       sentAt: Date.now(),
     });
+  });
+
+  socket.on("screen:start", () => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+    if (sharers.get(roomId)) return;
+
+    sharers.set(roomId, socket.id);
+    socket.to(roomId).emit("screen:started", socket.id);
+  });
+
+  socket.on("screen:stop", () => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+    if (!sharers.get(roomId) || sharers.get(roomId) !== socket.id) return;
+
+    sharers.delete(roomId);
+    socket.to(roomId).emit("screen:stopped");
+  });
+
+  socket.on("rtc:signal", (payload: { to: string; data: unknown }) => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+
+    const { to, data } = payload;
+    if (typeof to !== "string") return;
+    if (!io.sockets.adapter.rooms.get(roomId)?.has(to)) return;
+
+    io.to(to).emit("rtc:signal", { from: socket.id, data });
   });
 });
 
