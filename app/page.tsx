@@ -1,6 +1,6 @@
 "use client";
 
-import { Send } from "lucide-react";
+import { Loader, Send } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -9,6 +9,7 @@ export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [code, setCode] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -30,6 +31,20 @@ export default function Home() {
     if (code.length !== 6) return;
 
     router.push(`/${encodeURIComponent(code)}`);
+  };
+
+  const createRoom = async () => {
+    setIsCreating(true);
+
+    try {
+      const response = await fetch("/api/rooms", { method: "POST" });
+      if (!response.ok) throw new Error();
+
+      const { code } = (await response.json()) as { code: string };
+      enterRoom(code);
+    } catch {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -110,7 +125,12 @@ export default function Home() {
       </div>
 
       <div className="flex justify-center items-center">
-        <button className="px-6 py-4 rounded-lg border font-light cursor-pointer">
+        <button
+          className="px-6 py-4 rounded-lg border font-light cursor-pointer transition hover:border-neutral-400 disabled:cursor-wait disabled:opacity-60 flex items-center gap-2"
+          onClick={createRoom}
+          disabled={isCreating}
+        >
+          {isCreating && <Loader className="size-4 animate-spin" />}
           Create a new room
         </button>
       </div>

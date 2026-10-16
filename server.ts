@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { createServer } from "node:http";
 import next from "next";
 import { Server } from "socket.io";
@@ -10,7 +11,28 @@ const handle = app.getRequestHandler();
 
 await app.prepare();
 
+const ROOM_CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function generateRoomCode() {
+  return Array.from(
+    { length: 6 },
+    () => ROOM_CODE_CHARS[randomInt(ROOM_CODE_CHARS.length)],
+  ).join("");
+}
+
+function createRoomCode() {
+  let code = generateRoomCode();
+  while (io.sockets.adapter.rooms.get(code)?.size) code = generateRoomCode();
+  return code;
+}
+
 const httpServer = createServer((req, res) => {
+  if (req.method === "POST" && req.url === "/api/rooms") {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ code: createRoomCode() }));
+    return;
+  }
+
   handle(req, res);
 });
 
